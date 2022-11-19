@@ -1,14 +1,12 @@
 const bcrypt = require('bcrypt');
-const {User, Validation, Role, Payment, PaymentDetail} = require('../models/index')
+const {User, Validation, Role, Payment, PaymentDetail} = require('../models/index');
+const { validateUserRegistPayload, validateUserLoginPayload } = require('../validator/user');
 
 module.exports = {
     handlerPostRegistUser: async (req,res,next)=>{
         try {
-            const { fullName, email, password, division, confPass } = req.body;
-
-            if (password !== confPass) {
-                throw new Error("password and confirm password doesn't match");
-            }
+            validateUserRegistPayload(req.body)
+            const { fullName, email, password, division} = req.body;
 
             const emailCheck = await User.findOne({
                 where: {
@@ -16,11 +14,11 @@ module.exports = {
                 }
             })
 
-            if (emailCheck !== null) {
+            if (emailCheck) {
                 throw new Error(`${emailCheck.email} has been registered`);
             }
 
-            const hashPassword = await bcrypt.hash(password, 10);
+            const hashPassword = await bcrypt.hash(password, 8);
             const role = await Role.findOne({
                 where: {
                     roleName: 'member'
@@ -29,9 +27,15 @@ module.exports = {
             const data = await User.create({
                 password: hashPassword, fullName, email, division, idRole: role.id,
             });
-            res.send(data)
-        //send html page
-        //res.sendFile()
+            res.status(200).json({
+                status: 'Success',
+                message: 'Successfully create user',
+                data: {
+                    id: data.id,
+                    fullName: data.fullName,
+                    division: data.division
+                }
+            })
         } catch (error) {
             next(error);
         }
@@ -48,6 +52,38 @@ module.exports = {
                 throw new Error(`user with id ${id} don't exist`)
             }
             target.destroy();   
+        } catch (error) {
+            next(error)
+        }
+    },
+    handlerLoginUser: async (req,res,next)=>{
+        try {
+            const {email,password} = req.body;
+            validateUserLoginPayload(email,password);
+            const target = await User.findOne({
+                where:{
+                    email
+                }
+            })
+            if(target===null){
+                throw new Error('User not found');
+            }
+            const role = await Role.findOne({
+                where:{
+                    id: target.id
+                }
+            })
+            if(role.roleName === 'admin'){
+                next();
+            }
+            const validPassword = bcrypt.compareSync(password,target.password);
+            if(!validPassword){
+                throw new Error('invalid password')
+            }
+            res.json({
+                fullName: target.fullName,
+                division: target.division,  
+            })
         } catch (error) {
             next(error)
         }
